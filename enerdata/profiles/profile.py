@@ -7,7 +7,8 @@ from urlparse import urlparse
 
 from enerdata.datetime.timezone import TIMEZONE
 from enerdata.metering.measure import Measure
-from enerdata.utils.compress import is_compressed_file, get_compressed_file
+from enerdata.utils.profile import *
+
 
 class Coefficients(object):
 
@@ -115,17 +116,11 @@ class Profiler(object):
             )
 
 
-class BaseProfile(object):
-    _CACHE = {}
+class REEProfileParser(object):
 
     @classmethod
-    def get(cls, f, header):
+    def get(cls, m, header):
         import csv
-
-        m = StringIO(f.read())
-        if is_compressed_file(m):
-            cf = get_compressed_file(m)
-            m = StringIO(cf.read(m))
         reader = csv.reader(m, delimiter=';')
         cofs = []
         n_hour = 0
@@ -148,45 +143,6 @@ class BaseProfile(object):
             )
         return cofs
 
-    @classmethod
-    def get_cached(cls, key):
-        if key in cls._CACHE:
-            return cls._CACHE[key]
-
-
-class RemoteProfile(BaseProfile):
-    down_lock = Lock()
-
-    @classmethod
-    def get(cls, year, month, uri=None, header=False):
-        key = '%(year)s%(month)02i' % locals()
-        cached = super(RemoteProfile, cls).get_cached(key)
-        if cached:
-            return cached
-
-        if not uri:
-            raise Exception('Profile uri required')
-        url = urlparse(uri)
-        host = url.netloc
-        path = url.path
-
-        cls.down_lock.acquire()
-        import httplib
-        conn = None
-        try:
-            conn = httplib.HTTPConnection(host)
-            conn.request('GET', path)
-            f = conn.getresponse()
-            cls._CACHE[key] = super(RemoteProfile, cls).get(f, header)
-            return cls._CACHE[key]
-        finally:
-            if conn is not None:
-                conn.close()
-            cls.down_lock.release()
-
-        if not os.path.isdir(path):
-                raise Exception('Profile directory {path} not found'.format(**locals()))
-
 
 class REEProfile(RemoteProfile):
     HOST = 'http://www.ree.es'
@@ -197,23 +153,4 @@ class REEProfile(RemoteProfile):
         key = '%(year)s%(month)02i' % locals()
         perff_file = 'PERFF_%(key)s.gz' % locals()
         uri = '/'.join([cls.HOST, cls.PATH, perff_file])
-        return super(REEProfile, cls).get(year, month, uri, True)
-
-
-class LocalProfile(BaseProfile):
-
-    @classmethod
-    def get(cls, year, month, path=None, header=False):
-        key = '%(year)s%(month)02i' % locals()
-        cached = super(LocalProfile, cls).get_cached(key)
-        if cached:
-            return cached
-
-        if not path:
-            raise Exception('Profile directory required')
-        if not os.path.isfile(path):
-            raise Exception('Profile file {path} not found'.format(**locals()))
-
-        with open(path) as f:
-                cls._CACHE[key] = super(LocalProfile, cls).get(f, header)
-                return cls._CACHE[key]
+        return super(REEProfile, cls).get('PERFF', year, month, REEProfileParser, uri, True)

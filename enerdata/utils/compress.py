@@ -34,7 +34,6 @@ class BZFile (CompressedFile):
 
     @classmethod
     def read(cls, c):
-    #    return bz2.BZ2File(c).read()
         return bz2.decompress(c.buf)
 
 
